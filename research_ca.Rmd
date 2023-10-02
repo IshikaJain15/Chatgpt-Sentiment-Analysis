@@ -1,0 +1,645 @@
+---
+title: "Research Notebook"
+output:
+  html_notebook: default
+  pdf_document: default
+  html_document:
+    df_print: paged
+---
+
+# **Introduction/Abstract:**
+
+The rapid advancements in AI technology has led to an increased adoption and integration of AI into various applications and systems. The introduction of natural language processing models like ChatGPT, has revolutionized the way individuals interact with technology. ChatGPT is a model developed by open AI which generates human-like text responses. The introduction of such models has had an impact on wide range of topics, such as job markets, education sector, accessibility and automation of tasks, business models, etc. The research notebook aims to study the perception and acceptance of individuals for AI models like chatGPT. We also try to understand the attitudes, beliefs, and concerns of the users regarding human-computer interactions by scraping tweets, reddit comments, and news articles related to chatGPT and analyzing it using various text mining methods.
+
+![**Interest of ChatGPT reported by google trends**](images/Screenshot%20(125)-01.png)
+
+# **Short problem statement & research question:**
+
+What are the prevailing public sentiments, opinions, and concerns about the large language models like chatGPT expressed on social media platforms such as Twitter?
+
+**Subquestions:**
+
+-   We know that the different social media platforms can contain a mix of personal opinions, and biases. What are the diverse opinions and concerns expressed on different social media platforms regarding ChatGPT and the increasing use of AI?
+
+-   Has the perception of people changed with the further advancement of chatGPT, are there changes in the sentiments or importance of topics?
+
+-   Are the viewpoints of public on twitter different for different sectors such as education and job market regarding chatgpt.
+
+# **Methodological design**
+
+The research design best-suited to answer our research questions concerns descriptive research, using Tweets, reddit comments, and news articles collected from various sources such as Kaggle, scraping webpages using their API. We divide our text mining process into different stages namely, collecting data, data cleaning, analysis and visualisation. 
+
+-   We will perform sentiment analysis as it is the forefront of informing public interest and can be used as a monitoring tool for the evaluation of the impact of chatGPT. 
+
+-   We will do topic modelling, using Latent Dirichlet Allocation which is an unsupervised classifcation algorithm, which discovers latent topics in a collection of text documents. We can gain insights into how ChatGPT has affected people and the nature of their discussions, by discovering emerging topics of tweets.
+
+-   We compare the sentiment, and main topics among various media sources such as Twitter, Reddit comments, News articles. By analyzing a variety of sources, we try to gain a more comprehensive understanding of the range of views on ChatGPT and thereby the increasing use of AI.
+
+-   We will also use LDA to reveal how the discussion topics related to ChatGPT have evolved over time. This will help track the changing perceptions, trends, or emerging issues as more people engage with ChatGPT. We will also see how the sentiment of people changed over time. 
+
+-   Compare user segments: By segmenting the tweets based on keywords such as education, students, universities, we will compare the topics discussed by different user groups. This analysis will provide insights into how ChatGPT affects different segments of the population differently. 
+
+# **Description of data (collection)**
+
+We used the following data sources for the collection of data for our analysis:
+
+-   Kaggle: We downloaded the following datasets:
+
+    -   ChatGPT 1000 Daily Tweets (recent tweets in April and May, 2023)
+
+    -   ChatGPT Tweets first month of launch (tweets in November and December, 2022)
+
+    -   ChatGPT-related Tweets Jan-Mar 2023
+
+    -   ChatGPT Reddit
+
+-   News API: We scraped recent 500 news articles sorted by popularity having the word 'chatGPT', and saved it as a csv file.
+
+```{r}
+baseurl<- str_c("https://newsapi.org/v2/everything?q=chatgpt&language=en&sortBy=popularity&apiKey=84d2c2cc0884484b8f4282a255b08d20&page=")
+tenpages=glue("{baseurl}{1:5}")
+
+i = 1
+j = 1
+
+alldata = list()
+while (j<11) {
+  r = GET(tenpages[j])
+  r_text = content(r, "text")
+  data_json = fromJSON(r_text, flatten=T)
+  alldata[[i]] = as.data.frame(data_json)
+  i = i + 1
+  j = j + 1} 
+d = rbindlist(alldata, fill=TRUE) 
+write.csv(d, "news_articles.csv", row.names = FALSE)
+```
+
+# **Data cleaning/wrangling steps:**
+
+We need the following packages, and libraries for the smooth execution of the notebook.
+
+```{r}
+#Packages needed to run this notebook
+#Data collection
+install.packages("tidyverse") 
+install.packages("httr") 
+install.packages("jsonlite") 
+install.packages("glue") 
+install.packages("data.table") 
+
+###Data wrangling
+install.packages("psych")
+install.packages("reshape2")
+install.packages("dplyr")
+install.packages("tm")
+
+###Sentiment/text analysis/Natural language processing
+install.packages("quanteda.textmodels")
+install.packages("quanteda.textstats")
+install.packages("quanteda.textplots")
+install.packages("tm")
+install.packages("SnowballC")
+install.packages("syuzhet")
+install.packages("igraph")
+install.packages("spacyr")
+install.packages("udpipe")
+install.packages("lexicon")
+install.packages("textstem")
+
+#Latent Dirichlet allocation
+install.packages("topicmodels")
+install.packages("ldatuning")
+install.packages("LDAvis")
+install.packages("servr")
+
+#Visualization
+install.packages("kableExtra")
+
+#Data wranging,descriptives, tables etc.
+library(tidyverse)
+library(dplyr)
+library(psych)
+library(tibble)
+library(reshape2)
+library(kableExtra)
+
+#Text analysis, NLP, sentiment etc.
+library(glue)
+library(lexicon)
+library(quanteda)
+library(quanteda.textmodels)
+library(quanteda.textstats)
+library(quanteda.textplots)
+library(spacyr)
+library(udpipe)
+library(igraph)
+library(tm)
+library(SnowballC)
+library(RColorBrewer)
+library(syuzhet)
+
+#LDA
+library(topicmodels)
+library(LDAvis)
+library(servr)
+library(ldatuning)
+
+```
+
+We know that the data scraped from social media sources such as Twitter, Reddit, NewsAPI cannot be directly used for our analysis, as it might contain irrelevant or sensitive information, such as URLs, email addresses, or personal names, hash-tags, HTML tags, special characters, punctuation, or numbers, common words that do not carry much information, such as "the," "is," or "and". Thus we create a function to clean the data, by removing uninformative data, normalizing, and tokenizing to reduce the dimensionality of the data, improve processing efficiency, and focus on the meaningful content.
+
+```{r}
+clean_text<- function(df) {
+  # convert data into corpus
+  text_corpus <- Corpus(VectorSource(df$content))
+  # lowercase corpus
+  text_corpus <- tm_map(text_corpus, tolower)
+  # remove stopwords
+  text_corpus <- tm_map(text_corpus, removeWords, stopwords("english"))
+  # remove numbers
+  text_corpus <- tm_map(text_corpus, removeNumbers)
+  # remove usernames
+  remove_users <- function(x) gsub("[@][a - zA - Z0 - 9_]{1,15}", " ", x)
+  text_corpus<- tm_map(text_corpus, remove_users)
+  # remove urls
+  remove_urls <- function(x) gsub("(http|https)[^([:blank:]|\\|<|&|#\n\r)]+", " ", x)
+  text_corpus<- tm_map(text_corpus, remove_urls)
+  #handle spaces
+  Space <- content_transformer(function (x , pattern ) gsub(pattern, " ", x))
+  text_corpus <- tm_map(text_corpus, Space, "/")
+  text_corpus <- tm_map(text_corpus, Space, "@")
+  text_corpus <- tm_map(text_corpus, Space, "\\|")
+  text_corpus <- tm_map(text_corpus, stripWhitespace)
+  # remove hashtags
+  remove_ht <- function(x) gsub("(^|\\s)#[a-zA-Z]+", " ", x)
+  text_corpus<- tm_map(text_corpus, remove_ht)
+  # remove punctuation
+  remove_punct <- function(x) gsub("[[:punct:] ]+", " ", x)
+  text_corpus<- tm_map(text_corpus, remove_punct)
+  # lemmatization
+ 
+  text_df <- data.frame(text_clean = get("content", text_corpus), stringsAsFactors = FALSE)
+  corpusclean <- tm_map(text_corpus, stemDocument)
+  
+  return(corpusclean)
+}
+```
+
+The function clean_text takes in an input dataframe, and performs the pre-processing of the column content, to return cleaned, structured, and prepared corpus that facilitates our future analysis.
+
+We look at the tweets before and after applying above function:
+
+```{r}
+# Reading the data
+url="C:\\Users\\hp\\Downloads\\archive (3)\\chatgpt_daily_tweets.csv"
+tweets = read.csv(url)
+tweets=tweets[tweets$lang =='en',]
+tweets1 <- tweets %>% sample_n(10000)
+tweets1 <- rename(tweets1, content = text)
+corpus_clean_tweets<-clean_text(tweets1)
+```
+
+```{r}
+head(tweets1$content)
+```
+
+```{r}
+text_df <- data.frame(text_clean = get("content", corpus_clean_tweets), stringsAsFactors = FALSE)
+head(text_df$text_clean)
+```
+
+We can clearly see that there is a difference between the tweets, the pre-processed tweets are much clean, and have successfully remove most of the noise. Since we have different datasets for different parts of analysis, we will apply the function to all the texts and obtain clean data:
+
+```{r}
+url="C:\\Users\\hp\\Downloads\\archive (2)\\chatgpt-reddit-comments.csv"
+reddit = read.csv(url)
+reddit <- reddit %>% sample_n(10000)
+reddit <- rename(reddit, content = comment_body)
+corpus_clean_reddit<- clean_text(reddit)
+```
+
+```{r}
+url="C:\\Users\\hp\\Downloads\\output.csv"
+news_articles = read.csv(url)
+news_articles <- rename(news_articles, content = articles.content)
+corpus_clean_news<- clean_text(news_articles)
+```
+
+```{r}
+url="C:\\Users\\hp\\Downloads\\chatgpt.csv\\chatgpt.csv"
+tweets_dec1 = read.csv(url)
+tweets_dec <- tweets_dec1 %>% sample_n(10000)
+tweets_dec <- rename(tweets_dec, content = tweet)
+corpus_clean_tweets_dec<-clean_text(tweets_dec)
+```
+
+```{r}
+url="C:\\Users\\hp\\Downloads\\Twitter Jan Mar.csv\\Twitter Jan Mar.csv"
+tweets_jan_mar = read.csv(url)
+tweets_jan_mar <- tweets_jan_mar %>% sample_n(10000)
+corpus_clean_tweets_jan_mar<-clean_text(tweets_jan_mar)
+```
+
+Now, we have all the tweets, reddit comments, news articles cleaned and ready for analysis.
+
+# **Analysis**
+
+We will create a few functions which would serve the following purposes:
+
+-   The function return_top20words takes the cleaned corpus from above, and plots the 20 most frequently used words on a histogram with the counts on the y-axis and the word on the x-axis.
+
+-   The function return_textcloud takes a dataframe as input, and creates a textcloud of 200 words using the content column of the dataframe. The text cloud is generated using randomization and frequency of words, and the size of the words represents their prominence in the content. It is very helpful to understand the key themes of the tweets, and summarizing the highlights of the data.
+
+```{r}
+return_top20_words<-function(corpus) {
+  # Build a term-document matrix
+  c_dtm <- TermDocumentMatrix(corpus)
+  cdtm_m <- as.matrix(c_dtm)
+  cdtm_v <- sort(rowSums(cdtm_m),decreasing=TRUE)
+  cdtm_d <- data.frame(word = names(cdtm_v),freq=cdtm_v)
+  # Display the top 50 most frequent words
+  most_frequent_words <- head(cdtm_d, 50)
+  most_frequent_words <- most_frequent_words %>% select(word, freq)
+  most_frequent_words %>%
+    kbl() %>%
+    kable_styling(fixed_thead = T)
+  # Plot the most frequent words
+  barplot(cdtm_d[2:21,]$freq, las = 2, names.arg = cdtm_d[2:21,]$word,
+          col ="lightgreen", main ="Top 20 most frequent words",
+          ylab = "Word frequencies")
+  
+}
+return_text_cloud<-function(df) {
+  text<-corpus(df$content) %>% 
+    
+    #remove HTML tag
+    str_replace_all("<[^>]+>", " ") %>% 
+    str_replace_all("\\p{space}+", " ") %>% 
+    
+    #reduce repeated whitespace inside a string
+    str_squish() %>% 
+    #lower case
+    tolower() %>% 
+    #trim spaces at start and end
+    str_remove_all("^\\s+|\\s+$") %>% tokens() %>% dfm() %>%dfm_remove(stopwords("english"))
+  glue()
+  colors = RColorBrewer::brewer.pal(8, "Dark2")
+  textplot_wordcloud(text, max_words=200, 
+                     min_size = 1, max_size=8, random_order=TRUE,
+                     random_color= TRUE, color=colors)
+  
+}
+
+```
+
+```{r}
+return_top20_words(corpus_clean_tweets)
+```
+
+```{r}
+return_text_cloud(tweets1)
+```
+
+We can see from the above histogram and text-cloud, that the most used words in the recent tweets are quite positive, for example words like 'great', 'use', 'potential', 'free', 'best', 'powerful', 'top', etc.
+
+In order to support our findings, we also create a function to conduct sentiment analysis using Syuzhet method, and calculate the mean and median sentiment score of the tweets. The function assigns a score to each tweet on the scale -1 to 1 , -1 being the most negative and 1 being the positive. We also create a function to perform topic modelling using Latent Dirichlet Allocation, in order to discover hidden thematic structures in the tweets. LDA provides insights into the content of the documents by assigning probabilities to each document for different topics. Our function creates 15 topics, and displays top 10 words contributing to each topic. It helps us identify and cluster the main themes and subtopics from the data.
+
+```{r}
+
+perform_sentiment_analysis<-function(df){
+  tweetschar <- iconv(df$content)
+  syuzhet_vector1 <- get_sentiment(tweetschar, method="syuzhet")
+  sentiment <-as.data.frame(syuzhet_vector1)
+  print(summary(syuzhet_vector1))
+  return(sentiment)
+}
+
+plot_sentiment<-function(df){
+  tweetschar <- iconv(df$content)
+  # run nrc sentiment analysis to return data frame with each row classified as one of the following
+  d <- get_nrc_sentiment(tweetschar) #takes 2 min, grab a coffee ;)
+  
+  td<-data.frame(t(d))
+  td_new <- data.frame(rowSums(td[10:10000]))
+  #Transformation
+  names(td_new)[1] <- "count"
+  td_new <- cbind("sentiment" = rownames(td_new), td_new)
+  rownames(td_new) <- NULL
+  td_new2<-td_new[1:8,]
+  #Plot 1 - count of words associated with each sentiment
+  quickplot(sentiment, data=td_new2, weight=count, geom="bar",fill=sentiment,ylab="count")+ggtitle("Emotional Sentiment of Tweets")}
+
+perform_LDA<-function(df){
+  #LDA
+  clean_tweets <- df$content %>%
+    str_replace_all("#","") %>%
+    corpus() %>%
+    tokens(remove_punct = TRUE) %>%
+    tokens_remove(stopwords("english")) %>%
+    tokens_remove("^@", valuetype = "regex") %>%
+    tokens_remove("https://t.co/+", valuetype = "regex") %>%
+    tokens_remove("", valuetype = "regex") %>%
+    tokens_remove("[\U00010000-\U0010ffff]", valuetype = "regex") %>%
+    tokens_remove("[\U00002600-\U000027BF]", valuetype = "regex") %>%
+    tokens_tolower() %>%
+    tokens_replace(pattern = lexicon::hash_lemmas$token,
+                   replacement = lexicon::hash_lemmas$lemma)
+  ###LDA
+  dfm_tweets = clean_tweets %>%
+    tokens(remove_punct = T) %>%
+    dfm() %>%
+    dfm_remove(stopwords("english")) %>%
+    #remove search words:
+    dfm_remove(c("chatgpt", "|", "gpt", "rt", "$", "1", "+", "2", "100", "n")) %>%
+    dfm_trim(min_doc=0.01, docfreq_type = "prop")
+  dtm = convert(dfm_tweets, to = "topicmodels")
+  set.seed(1)
+  m = LDA(dtm, method = "Gibbs", k = 15, control = list(alpha = 0.1))
+  terms(m, 10) %>%
+    kbl() %>%
+    kable_styling(bootstrap_options = c("striped", "hover"), position = "left")
+}
+```
+
+```{r}
+sentiment_tweets<-perform_sentiment_analysis(tweets1)
+```
+
+```{r}
+sentiment_tweets$final_sentiment <- ifelse(sentiment_tweets$syuzhet_vector1 > 0.1, "Positive",
+                                   ifelse(sentiment_tweets$syuzhet_vector1 < -0.1, "Negative",
+                                          "Neutral"))
+sentiment_summary <- table(sentiment_tweets$final_sentiment)
+sentiment_summary
+```
+
+```{r}
+summary.data.frame(sentiment_tweets)
+```
+
+The results of sentiment analysis show that the overall sentiment towards chatGPT in tweets is positive as the mean and median sentiments are both positive. Also, the number of positive tweets are much more prevalent than the number of negative tweets.
+
+```{r}
+perform_LDA(tweets1)
+```
+
+On performing LDA we can clearly identify similarity between topics. For example, the topic 2 concerns about apps such as grammarly, quillbot, netflix, spotify which requires paid subscriptions to access them. Topic 3 concerns about how the chatgpt would affect the job market, as suggested by the words 'job', 'replace'. Topic 6 shows concerns regarding fake research papers generated using AI. Thus, LDA does provide us with prevailing public opinions and sentiments related to chatgpt.
+
+```{r}
+plot_sentiment(tweets1)
+```
+
+The sentiment plot also provide a clear evidence of positive sentiment. Also, we can note that the anticipation count is high , which implies that people are looking forward to the further updates on chatgpt with eagerness and enthusiasm.
+
+**Analysis for Subquestion 1:**
+
+Now, we will check if the public sentiment, topics of discussions, are same over other social media sources such as reddit comments and the news articles:
+
+```{r}
+sentiment_reddit<-perform_sentiment_analysis(reddit)
+summary.data.frame(sentiment_reddit)
+```
+
+We can note that the mean value of sentiment analysis is higher for the reddit comments, whereas the median is lower than the tweets. This suggests that the number of people who write positive about chatGPT are more on twitter, but the intensity of positivity is higher for the reddit comments.
+
+```{r}
+sentiment_reddit$final_sentiment <- ifelse(sentiment_reddit$syuzhet_vector1 > 0.1, "Positive",
+                                   ifelse(sentiment_reddit$syuzhet_vector1 < -0.1, "Negative",
+                                          "Neutral"))
+sentiment_summary <- table(sentiment_reddit$final_sentiment)
+sentiment_summary
+```
+
+```{r}
+return_top20_words(corpus_clean_reddit)
+```
+
+```{r}
+return_text_cloud(reddit)
+```
+
+We can note that words in the textcloud are a little different than the ones for the tweets. Reddit comments seems to be using a more casual language as the words 'lol', ':(', etc. We further look at the results of LDA to get a clearer distinction among topics.
+
+```{r}
+perform_LDA(reddit)
+```
+
+Here, topic 7 probably are concerns about the school students using chatgpt to write essays, the topic 4 are concerns about the bot being able to chat, post, comment, delete now, topic 14 maybe wants to imply how the time is changing, topic 8 might be praising the ability of chatgpt to be able to provide with codes. Few topics seem common among both the twitter, and reddit whereas few differ.
+
+We repeat the same process for news articles:
+
+```{r}
+sentiment_news<-perform_sentiment_analysis(news_articles)
+summary.data.frame(sentiment_news)
+```
+
+```{r}
+sentiment_news$final_sentiment <- ifelse(sentiment_news$syuzhet_vector1 > 0.1, "Positive",
+                                   ifelse(sentiment_news$syuzhet_vector1 < -0.1, "Negative",
+                                          "Neutral"))
+sentiment_summary <- table(sentiment_news$final_sentiment)
+sentiment_summary
+```
+
+We do not have 10000 news articles, due to shortage of time we could not scrape as many as tweets. But we can clearly see that both the mean and median values of sentiments are higher for news articles than the tweets. The number of positive news articles are almost thrice the number of negative articles.
+
+```{r}
+return_top20_words(corpus_clean_news)
+```
+
+```{r warning=FALSE}
+return_text_cloud(news_articles)
+```
+
+```{r}
+perform_LDA(news_articles)
+```
+
+News articles generally adhere to formal language and a professional tone, so can be seen by the word cloud and the LDA. Since the news articles are meant to cover wider audience, the topics here are more generalized to the society. For example, the tweets and reddit comments seemes to be personal views about the chatGPT, but the news articles not only covers the common topics such as job markets (Topic 10), but also concerns about how chatgpt and ai could expand and develop the economy (Topic 3), the blogs as the Topic 6 includes words such as Medium, Insider, the Topic 9 consists of CEOs such as Elon Musk, Sam Altman.
+
+Thus we can conclude that overall the positive sentiment seems to prevail among all the media sources, but the topics, concerns, and views change with the source of media. The twitter and reddit still share some commonalities, but the news articles seem to have completely different concerns about chatgpt, which is explainable because twitter and reddit are often more informal and conversational in nature, allowing for personal opinions, slang, and abbreviations or a casual language in comparison to news articles are informative and formal.
+
+**Analysis for Subquestion 2:**
+
+1.  Now we look at the tweets when the chatgpt was just launched, and how the sentiment evolved over time.
+
+```{r}
+sentiment_tweets_dec<-perform_sentiment_analysis(tweets_dec)
+summary.data.frame(sentiment_tweets_dec)
+```
+
+```{r}
+sentiment_tweets_dec$final_sentiment <- ifelse(sentiment_tweets_dec$syuzhet_vector1 > 0.1, "Positive",
+                                   ifelse(sentiment_tweets_dec$syuzhet_vector1 < -0.1, "Negative",
+                                          "Neutral"))
+sentiment_summary <- table(sentiment_tweets_dec$final_sentiment)
+sentiment_summary
+```
+
+```{r}
+return_top20_words(corpus_clean_tweets_dec)
+```
+
+The top 20 words suggests that people were talking about how the chatgpt could be used, its ability to generate codes, answer the questions, write stuff, etc.
+
+```{r}
+return_text_cloud(tweets_dec)
+```
+
+```{r}
+perform_LDA(tweets_dec)
+```
+
+```{r}
+sentiment_jan_mar<-perform_sentiment_analysis(tweets_jan_mar)
+summary.data.frame(sentiment_jan_mar)
+```
+
+We can clearly see that sentiment of people is more positive in December tweets than the recent tweets, also the topics provided by LDA supports the statement. As we can see Topic 2 seems to praise chatGPT by calling it fun, mind blowing, good, and pretty. Topic 4 suggets that people think chatGPT would change the future world. Topic 8 concerns about the ability of chatGPT to be able to generate good poems and essays. Topic 15 also states how chatgpt can be used to write python codes and learn programming. Thus, the topics seem to be more positive than the recent tweets discussed above.
+
+Now, since we have the tweets from November to May, we take the mean sentiment of each month and plot it using a line chart in order to visualize the change of sentiment over time.
+
+```{r}
+tweets1['sentiment']<-sentiment_tweets['syuzhet_vector1']
+tweets_dec['sentiment']<-sentiment_tweets_dec['syuzhet_vector1']
+tweets_jan_mar['sentiment']<-sentiment_jan_mar['syuzhet_vector1']
+
+```
+
+```{r}
+library(stringr)
+tweets1['date']<-sapply(str_split(tweets1$tweet_extracted, " "), "[[", 1)
+tweets1['month']<-sapply(str_split(tweets1$date, "-"), "[[", 2)
+sent_recent <- tweets1 %>%
+  group_by(month) %>%
+  summarize(mean_value = mean(sentiment))
+sent_recent
+```
+
+```{r}
+tweets_jan_mar['date']<-sapply(str_split(tweets_jan_mar$date, " "), "[[", 1)
+tweets_jan_mar['month']<-sapply(str_split(tweets_jan_mar$date, "-"), "[[", 2)
+sent_jan_mar <- tweets_jan_mar %>%
+  group_by(month) %>%
+  summarize(mean_value = mean(sentiment))
+sent_jan_mar
+```
+
+```{r}
+tweets_dec['date']<-sapply(str_split(tweets_dec$created_at, " "), "[[", 1)
+tweets_dec['month']<-sapply(str_split(tweets_dec$date, "-"), "[[", 2)
+sent_dec <- tweets_dec %>%
+  group_by(month) %>%
+  summarize(mean_value = mean(sentiment))
+sent_dec
+```
+
+```{r}
+# Combine the tibbles using bind_rows()
+combined <- bind_rows(sent_dec, sent_jan_mar, sent_recent)
+combined['Mon']<-c("Nov", "Dec", "Jan", "Feb", "Mar", "Apr", "May")
+# View the combined tibble
+print(combined)
+```
+
+```{r}
+library(ggplot2)
+ggplot(combined, aes(x = seq_along(mean_value), y = mean_value)) +
+  geom_line() +
+  labs(x = "Month", y = "Sentiment", title = "Change in sentiment over time")
+```
+
+We can clearly see that during the launch, the people were more supportive, there may have been high expectations and excitement about the ChatGPT's capabilities. However, as users interacted more and more with the system and discovered its limitations or encountered instances of inaccurate or inappropriate responses, it might have led to a decrease in positivity. Moreover, the increased awareness of the issues such as biases, misinformation generation, and privacy would have induced some fear among the people. Also, people could be concerned about losing their jobs as the AI models like chatGPT could replace their work. The learnings of students could be affected as well, as everything being available for free might lead to laziness and dependence on such AI models for homeworks, and assignments. There could be several other reasons for reduced positivity among people regarding chatGPT.
+
+**Analysis for Subquestion 3:**
+
+Finally, we reach the last section of our analysis where we look for the tweets of different sectors by filtering the content with related keywords. Since we found the education sector and the job markets to be common topics of discussions above, we will try to look deeper into the concerns and reviews of people in these sectors.
+
+**Education Sector:**
+
+```{r}
+# Create a vector of specific words
+specific_words <- c("student", "education", "professor", "college")
+tweets_dec1 <- rename(tweets_dec1, content = tweet)
+# Filter observations based on specific words
+df_student <- tweets_dec1[grepl(paste(specific_words, collapse = "|"), tweets_dec1$content), ]
+
+perform_LDA(df_student)
+```
+
+We can clearly see that most of the topic concern about the ability of chatgpt to write poems, essays, papers, assignments, and codes and students using it for the completion of their tasks. Topic 4 suggests concerns regarding the impact of chatgpt to an extent which might lead to change in entire education system. Topic 6, 7 and 15 emphasizes on the worries of professors due to cheating, plagiarism. Topic 9 and 13 points out the positive impacts such as how chatGPT could help the professors and students to teach and learn.
+
+```{r}
+return_text_cloud(df_student)
+```
+
+The word cloud seem to have mixed opinions as the words 'terror', 'worry', 'plagiarism', 'cheat' highlights the negative impacts of chatGPT in the education sectors, whereas the words 'learning', 'teach', 'better', 'potential', 'interesting' , 'smart', 'breakthrough' suggest positivity in people's thoughts.
+
+```{r}
+return_top20_words(clean_text(df_student))
+```
+
+The LDA results, text cloud and the histogram plots all suggest mixed views regarding chatGPT. The people seem to weigh the positives and negatives through their discussions on social media platforms such as Twitter.
+
+**Job Market:**
+
+```{r}
+# Create a vector of specific words
+specific_words <- c("job", "business")
+# Filter observations based on specific words
+df_job <- tweets_dec1[grepl(paste(specific_words, collapse = "|"), tweets_dec1$content), ]
+
+perform_LDA(df_job)
+```
+
+We can see the prevailing issues or advantages being discussed on twitter about the impact of chatgpt on job markets:
+
+1.  People expressing their fear of human jobs being replaced by AI. (Topic 4, 7, 9, 13)
+2.  Helpful in terms of assisting in writing cover letters, job descriptions, interview question-answers. (Topic 8, 14)
+3.  ChatGPT could generate business ideas and models. (Topic 3,5,11)
+4.  Help software developers and engineers learn programming or solve problems (Topic 6)
+5.  How it can be used in customer service markets as a good helping assistant. (Topic 12)
+
+```{r}
+return_text_cloud(df_job)
+```
+
+```{r}
+return_top20_words(clean_text(df_job))
+```
+
+We can conclude that the job markets are definitely affected by the introduction of ChatGPT, as it is raising various concerns and topics as discussed above. The major one being the AI taking over the jobs of people. There are surely many positive impacts as well such as good business ideas, customer service, generates codes and helping out with various other stuff.
+
+# **Results:**
+
+The following are our findings from the above analysis:
+
+-   The recent overall public sentiment towards the introduction of ChatGPT is positive. Prevalent topics of discussions are how it would change the future, would AI replace the jobs of people, concerns regarding cheating, etc.
+
+-   The different media platforms have different topics of concerns regarding chatGPT, the tweets and reddit comments are more similar and have more topics in common than the news articles which use a formal and professional tone.
+
+-   The positivity of the sentiments of people has reduced as compared to the launch, as during the launch people were more excited and enthusiastic about such a model, but with time, increased awareness about the compromising privacy, ethics, and various other factors led to a decrease in positivity.
+
+-   The education as well as job sectors have mixed opinions of chatGPT, as few topics are emphasizing on how chatGPT is helping and making life easier, whereas few about the cons such as cheating, plagiarism, fear of losing job, etc.
+
+# **Limitations:**
+
+The research notebook uses very basic and elementary approaches of text-mining, for example the sentiment analysis conducted just counts the scores on the basis of positive and negative words present in the text, the words such as not good would also probably be counted as positive. The methods used above are unable to detect the sarcasm in the texts.
+
+We narrowed our analysis to twitter, reddit, and a few news articles, whereas there are various other social media sources which could have been used such as blogs from Medium, instagram, facebook, etc.
+
+The data cleaning process could also have been improved as we can see a few symbols being appeared in the topics, and text-clouds.
+
+# Conclusion:
+
+We can conclude that the text-mining of data can provide us with various insights. We hope to have shed some light on the prevailing sentiments of people regarding chatGPT, and how they vary with different platform and with time. Also, we were able to find the prevalent topics of discussions among sectors such as education and job markets. Thus, we can do similar analysis for various other sectors such as healthcare, creative industries etc, and also to answer other social research questions.
+
+# **Pitch:**
+
+This research notebook focuses on the analysis of the public sentiment and perception of the introduction of the chatGPT on various platforms such as twitter, reddit and news articles. We found that the prevalent sentiment among people regarding chatGPT is positive. We compare discourse on social media such as twitter to that in news articles, and discovered that the news articles cover broader topics involving informative and formal descriptions whereas tweets and reddit comments reflect the personal opinions and experiences of the individual users. We further found that the positivity of people about chatGPT has reduced in comparison to its launch-time, which could be the result of compromised ethical considerations, fear of losing job, or incorrect and inappropriate responses. Finally, we conclude our notebook with the mixed reviews of education and job sector highlighting the pros and cons of chatGPT using the topic modelling.
+
+# References:
+
+notebook_studentexample.pdf (Example notebook uploaded on toledo)
+
+\
